@@ -36,7 +36,7 @@ int main(void)
 		if(!rxQueueIsEmpty())
 		{
 			Serial_GetString((char*)Word, 20);
-			OLED_ShowString(4, 1, (char*)Word);
+			OLED_ShowString(4, 1, Word);
 		}
 	}
 }
