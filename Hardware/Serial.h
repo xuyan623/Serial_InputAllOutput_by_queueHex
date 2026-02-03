@@ -29,8 +29,8 @@
 
 typedef struct
 {
-    volatile uint8_t WriteIndex;
-    volatile uint8_t ReadIndex;
+    uint8_t WriteIndex;
+    uint8_t ReadIndex;
     uint8_t DataQueue[50];
 }Queue_t;
 
@@ -45,11 +45,11 @@ uint32_t Serial_GetNumber(void);
 void Serial_Printf(char *format, ...);
 
 uint8_t rxQueueIsEmpty(void);
-uint8_t writeIndexAdd(volatile Queue_t *Queue, uint8_t QueueLength);
-uint8_t getQueueOneData(volatile Queue_t *Queue, uint8_t QueueLength);
-uint8_t giveQueueOneData(volatile Queue_t *Queue, uint8_t QueueLength, uint8_t Data);
-void getQueueAllData(volatile Queue_t *Queue, uint8_t QueueLength, uint8_t *Data);
-void readIndexAdd(volatile Queue_t *Queue, uint8_t QueueLength);
+uint8_t writeIndexAdd(Queue_t *Queue, uint8_t QueueLength);
+uint8_t getQueueOneData(Queue_t *Queue, uint8_t QueueLength);
+uint8_t giveQueueOneData(Queue_t *Queue, uint8_t QueueLength, uint8_t Data);
+void getQueueAllData(Queue_t *Queue, uint8_t QueueLength, uint8_t *Data);
+void readIndexAdd(Queue_t *Queue, uint8_t QueueLength);
 
 
 

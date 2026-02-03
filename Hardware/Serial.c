@@ -5,13 +5,13 @@
 #include <stdlib.h>
 #include "Serial.h"
 
-volatile Queue_t TxPacketQueue = {
+Queue_t TxPacketQueue = {
 	.ReadIndex = 0,
 	.WriteIndex = 0,
 	.DataQueue = {0}
 };
 
-volatile Queue_t RxPacketQueue = {
+Queue_t RxPacketQueue = {
 	.ReadIndex = 0,
 	.WriteIndex = 0,
 	.DataQueue = {0}
@@ -31,7 +31,7 @@ uint8_t rxQueueIsEmpty(void)
 	}
 }
 
-uint8_t writeIndexAdd(volatile Queue_t *Queue, uint8_t QueueLength)
+uint8_t writeIndexAdd(Queue_t *Queue, uint8_t QueueLength)
 {
 	uint8_t nextWriteIndex = (Queue->WriteIndex + 1) % QueueLength;
 	
@@ -46,12 +46,12 @@ uint8_t writeIndexAdd(volatile Queue_t *Queue, uint8_t QueueLength)
 	return 1;
 }
 
-void readIndexAdd(volatile Queue_t *Queue, uint8_t QueueLength)
+void readIndexAdd(Queue_t *Queue, uint8_t QueueLength)
 {
 	Queue->ReadIndex = (Queue->ReadIndex + 1) % QueueLength;
 }
 
-uint8_t giveQueueOneData(volatile Queue_t *Queue, uint8_t QueueLength, uint8_t Data)
+uint8_t giveQueueOneData(Queue_t *Queue, uint8_t QueueLength, uint8_t Data)
 {
 	uint8_t nextWriteIndex = (Queue->WriteIndex + 1) % QueueLength;
 	
@@ -69,7 +69,7 @@ uint8_t giveQueueOneData(volatile Queue_t *Queue, uint8_t QueueLength, uint8_t D
 	return 1;
 }
 
-uint8_t getQueueOneData(volatile Queue_t *Queue, uint8_t QueueLength)
+uint8_t getQueueOneData(Queue_t *Queue, uint8_t QueueLength)
 {
 	uint8_t Data;
 	Data = Queue->DataQueue[Queue->ReadIndex];
@@ -78,7 +78,7 @@ uint8_t getQueueOneData(volatile Queue_t *Queue, uint8_t QueueLength)
 	return Data;
 }
 
-void getQueueAllData(volatile Queue_t *Queue, uint8_t QueueLength, uint8_t *Data)
+void getQueueAllData(Queue_t *Queue, uint8_t QueueLength, uint8_t *Data)
 {
 	for(uint8_t i = 0; Queue->WriteIndex != Queue->ReadIndex; i++)
 	{
@@ -222,40 +222,40 @@ uint8_t Serial_GetString(char *String, uint8_t MaxLength)
         return 0;
     }
     
-	// 清空目标字符串
+    // 清空目标字符串
     memset(String, 0, MaxLength);
     
-    // 等待接收起始标志0xFF
+    // 等待接收完整的数据包
     while(RxPacketQueue.WriteIndex != RxPacketQueue.ReadIndex && !receivedStartFlag)
     {
-        uint8_t tempData = getQueueOneData(&RxPacketQueue, RX_PACKET_QUEUE_LENGTH);
-        
-        if(tempData == 0xFF)  // 接收到起始标志
+        // 检查队列中的数据
+        if(!rxQueueIsEmpty())
         {
-            receivedStartFlag = 1;
-            dataIndex = 0;  // 重置索引
+            uint8_t tempData = getQueueOneData(&RxPacketQueue, RX_PACKET_QUEUE_LENGTH);
+            
+            if(tempData == 0xFF)  // 接收到起始标志
+            {
+                receivedStartFlag = 1;
+                dataIndex = 0;  // 重置索引
+            }
         }
-        // 不是起始标志，继续等待
     }
     
-	// 接收数据直到结束标志或队列为空
+    // 接收数据直到结束标志
     while(receivedStartFlag && !receivedEndFlag && dataIndex < MaxLength - 1)
     {
-        if(rxQueueIsEmpty())
+        if(!rxQueueIsEmpty())
         {
-            // 队列为空，但还未收到结束标志，退出等待
-            break;
-        }
-        
-        uint8_t tempData = getQueueOneData(&RxPacketQueue, RX_PACKET_QUEUE_LENGTH);
-        
-        if(tempData == 0xFE)  // 接收到结束标志
-        {
-            receivedEndFlag = 1;
-        }
-        else
-        {
-            String[dataIndex++] = tempData;  // 存储接收到的字符
+            uint8_t tempData = getQueueOneData(&RxPacketQueue, RX_PACKET_QUEUE_LENGTH);
+            
+            if(tempData == 0xFE)  // 接收到结束标志
+            {
+                receivedEndFlag = 1;
+            }
+            else
+            {
+                String[dataIndex++] = tempData;  // 存储接收到的字符
+            }
         }
     }
     
@@ -469,16 +469,7 @@ void USART1_IRQHandler(void)
 	if (USART_GetITStatus(USART1, USART_IT_RXNE) == SET)		//判断是否是USART1的接收事件触发的中断
 	{
 		uint8_t RxData = USART_ReceiveData(USART1);				//读取数据寄存器，存放在接收的数据变量
-		
-		// 检查队列是否已满，如果未满则添加数据
-		if(giveQueueOneData(&RxPacketQueue, RX_PACKET_QUEUE_LENGTH, RxData))
-		{
-			// 数据成功添加到队列
-		}
-		else
-		{
-			// 队列已满，数据被丢弃
-		}
+		giveQueueOneData(&RxPacketQueue, RX_PACKET_QUEUE_LENGTH, RxData);
 		
 		USART_ClearITPendingBit(USART1, USART_IT_RXNE);		//清除标志位
 	}
