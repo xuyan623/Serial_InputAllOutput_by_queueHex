@@ -13,7 +13,6 @@ int main(void)
 	OLED_Init();		//OLED初始化
 	Key_Init();			//按键初始化
 	Serial_Init();		//串口初始化
-	
 	/*显示静态字符串*/
 	OLED_ShowString(1, 1, "TxPacket");
 	OLED_ShowString(3, 1, "RxPacket");
@@ -31,12 +30,12 @@ int main(void)
 		KeyNum = Key_GetNum();			//获取按键键码
 		if (KeyNum == 1)				//按键1按下
 		{
-			Serial_SendString("xuyan");
+			Serial_Send("xuyan");
 		}
 		if(!rxQueueIsEmpty())
 		{
 			Serial_GetString((char*)Word, 20);
-			OLED_ShowString(4, 1, Word);
+			OLED_ShowString(4, 1, (char*)Word);
 		}
 	}
 }
