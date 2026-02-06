@@ -12,7 +12,9 @@ int main(void)
 	/*模块初始化*/
 	OLED_Init();		//OLED初始化
 	Key_Init();			//按键初始化
-	Serial_Init();		//串口初始化
+
+	Serial_t* SerialA1 = getSerialA1();
+	Serial_Init(1, SerialA1);		//串口初始化
 	/*显示静态字符串*/
 	OLED_ShowString(1, 1, "TxPacket");
 	OLED_ShowString(3, 1, "RxPacket");
@@ -32,9 +34,9 @@ int main(void)
 		{
 			Serial_Send("xuyan");
 		}
-		if(!rxQueueIsEmpty())
+		if(1)
 		{
-			Serial_GetString((char*)Word, 20);
+			Serial_UnpackReceive(Word, 20, SerialA1);
 			OLED_ShowString(4, 1, (char*)Word);
 		}
 	}

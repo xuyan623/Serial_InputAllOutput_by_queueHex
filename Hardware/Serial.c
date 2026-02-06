@@ -4,24 +4,43 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdarg.h>
 
 Queue_t TxPacketQueue = {
     .ReadIndex = 0,
     .WriteIndex = 0,
     .QueueLength = 50,
-    .DataQueue = {0}};
+    .DataQueue = {0}
+};
 
 Queue_t RxPacketQueue = {
     .ReadIndex = 0,
     .WriteIndex = 0,
     .QueueLength = 50,
-    .DataQueue = {0}};
+    .DataQueue = {0}
+};
 
-uint8_t rxQueueIsEmpty(void)
+Serial_t SerialA1 = {
+    .SerialName = "A1",
+    .RxQueue = &RxPacketQueue,
+    .TxQueue = &TxPacketQueue,
+    .TxPin = GPIO_Pin_9,
+    .RxPin = GPIO_Pin_10,
+    .USARTx = USART1,
+    .USARTx_IRQn = USART1_IRQn,
+    .NVIC_IRQChannelPreemptionPriority = 1,
+    .NVIC_IRQChannelSubPriority = 1,
+};
+Serial_t* getSerialA1(void)
+{
+    return &SerialA1;
+}
+
+uint8_t rxQueueIsEmpty(Serial_t *Serial)
 {
     // 在环形缓冲区中，WriteIndex == ReadIndex 表示队列为空
     // 但需要和writeIndexAdd中的队列满检测逻辑配合
-    if (RxPacketQueue.WriteIndex == RxPacketQueue.ReadIndex)
+    if (Serial->RxQueue->WriteIndex == Serial->RxQueue->ReadIndex)
     {
         return 1;
     }
@@ -46,9 +65,19 @@ uint8_t writeIndexAdd(Queue_t *Queue)
     return 1;
 }
 
-void readIndexAdd(Queue_t *Queue)
+uint8_t readIndexAdd(Queue_t *Queue)
 {
-    Queue->ReadIndex = (Queue->ReadIndex + 1) % Queue->QueueLength;
+    uint8_t nextReadIndex = (Queue->ReadIndex + 1) % Queue->QueueLength;
+
+        // 检查队列是否已满
+    if (nextReadIndex == Queue->WriteIndex)
+    {
+        // 队列已满，不移动写指针
+        return 0;
+    }
+
+    Queue->ReadIndex = nextReadIndex;
+    return 1;
 }
 
 uint8_t giveQueueOneData(Queue_t *Queue, uint8_t Data)
@@ -78,28 +107,36 @@ uint8_t getQueueOneData(Queue_t *Queue)
     return Data;
 }
 
-void getQueueAllData(Queue_t *Queue, uint8_t *Data)
+
+void sendTxQueueOneDataToSerial(Serial_t *Serial)
 {
-    for (uint8_t i = 0; Queue->WriteIndex != Queue->ReadIndex; i++)
+    if (Serial->TxQueue->WriteIndex != Serial->TxQueue->ReadIndex)
     {
-        Data[i] = getQueueOneData(Queue);
+        Serial_SendByte(getQueueOneData(Serial->TxQueue));
     }
 }
 
-void sendTxQueueOneDataToSerial(void)
-{
-    if (TxPacketQueue.WriteIndex != TxPacketQueue.ReadIndex)
-    {
-        Serial_SendByte(getQueueOneData(&TxPacketQueue));
-    }
-}
 
-void sendTxQueueAllDataToSerial(void)
+void sendTxQueueAllDataToSerial(Serial_t *Serial)
 {
     do
     {
-        sendTxQueueOneDataToSerial();
+        sendTxQueueOneDataToSerial(Serial);
     } while (TxPacketQueue.ReadIndex != TxPacketQueue.WriteIndex);
+}
+
+void Serial_Init(uint8_t Num, ...)
+{
+    va_list Serials;
+    uint8_t i = 0;
+    va_start(Serials, Num);
+
+    for (i = 0; i < Num; i++)
+    {
+       OneSerial_Init((va_arg(Serials, Serial_t*)));
+    }
+
+    va_end(Serials);
 }
 
 /**
@@ -107,7 +144,7 @@ void sendTxQueueAllDataToSerial(void)
  * 参    数：无
  * 返 回 值：无
  */
-void Serial_Init(void)
+void OneSerial_Init(Serial_t *Serial)
 {
     /*开启时钟*/
     RCC_APB2PeriphClockCmd(RCC_APB2Periph_USART1, ENABLE); // 开启USART1的时钟
@@ -116,12 +153,12 @@ void Serial_Init(void)
     /*GPIO初始化*/
     GPIO_InitTypeDef GPIO_InitStructure;
     GPIO_InitStructure.GPIO_Mode = GPIO_Mode_AF_PP;
-    GPIO_InitStructure.GPIO_Pin = GPIO_Pin_9;
+    GPIO_InitStructure.GPIO_Pin = Serial->TxPin;
     GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;
     GPIO_Init(GPIOA, &GPIO_InitStructure); // 将PA9引脚初始化为复用推挽输出
 
     GPIO_InitStructure.GPIO_Mode = GPIO_Mode_IPU;
-    GPIO_InitStructure.GPIO_Pin = GPIO_Pin_10;
+    GPIO_InitStructure.GPIO_Pin = Serial->RxPin;
     GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;
     GPIO_Init(GPIOA, &GPIO_InitStructure); // 将PA10引脚初始化为上拉输入
 
@@ -136,21 +173,21 @@ void Serial_Init(void)
     USART_Init(USART1, &USART_InitStructure);                                       // 将结构体变量交给USART_Init，配置USART1
 
     /*中断输出配置*/
-    USART_ITConfig(USART1, USART_IT_RXNE, ENABLE); // 开启串口接收数据的中断
+    USART_ITConfig(Serial->USARTx, USART_IT_RXNE, ENABLE); // 开启串口接收数据的中断
 
     /*NVIC中断分组*/
     NVIC_PriorityGroupConfig(NVIC_PriorityGroup_2); // 配置NVIC为分组2
 
     /*NVIC配置*/
     NVIC_InitTypeDef NVIC_InitStructure;                      // 定义结构体变量
-    NVIC_InitStructure.NVIC_IRQChannel = USART1_IRQn;         // 选择配置NVIC的USART1线
+    NVIC_InitStructure.NVIC_IRQChannel = Serial->USARTx_IRQn;         // 选择配置NVIC的USART1线
     NVIC_InitStructure.NVIC_IRQChannelCmd = ENABLE;           // 指定NVIC线路使能
-    NVIC_InitStructure.NVIC_IRQChannelPreemptionPriority = 1; // 指定NVIC线路的抢占优先级为1
-    NVIC_InitStructure.NVIC_IRQChannelSubPriority = 1;        // 指定NVIC线路的响应优先级为1
+    NVIC_InitStructure.NVIC_IRQChannelPreemptionPriority = Serial->NVIC_IRQChannelPreemptionPriority; // 指定NVIC线路的抢占优先级为1
+    NVIC_InitStructure.NVIC_IRQChannelSubPriority = Serial->NVIC_IRQChannelSubPriority;        // 指定NVIC线路的响应优先级为1
     NVIC_Init(&NVIC_InitStructure);                           // 将结构体变量交给NVIC_Init，配置NVIC外设
 
     /*USART使能*/
-    USART_Cmd(USART1, ENABLE); // 使能USART1，串口开始运行
+    USART_Cmd(Serial->USARTx, ENABLE); // 使能USART1，串口开始运行
 }
 
 /**
@@ -206,25 +243,8 @@ void Serial_Send(void *Data)
             break;
         }
     }
-    sendTxQueueAllDataToSerial();
+    sendTxQueueAllDataToSerial(&SerialA1);
     Serial_SendByte(0xFE);
-}
-
-uint8_t Serial_GetString(char *String, uint8_t MaxLength)
-{
-    // 参数检查
-    if (String == NULL || MaxLength == 0)
-    {
-        return 0;
-    }
-
-    // 清空目标字符串
-    memset(String, 0, MaxLength);
-
-    // 使用通用接收函数获取字符串
-    uint8_t length = Serial_Receive(String, MaxLength, SERIAL_TYPE_STRING);
-
-    return length;
 }
 
 /**
@@ -241,57 +261,25 @@ uint32_t Serial_Pow(uint32_t X, uint32_t Y)
     return Result;
 }
 
-/**
- * 函    数：串口发送数字
- * 参    数：Number 要发送的数字，范围：0~4294967295
- * 返 回 值：无
- */
-
-uint32_t Serial_GetNumber(void)
+uint8_t Serial_UnpackReceive(void *Buffer, uint8_t MaxSize, Serial_t *Serial)
 {
-    // 使用较大的缓冲区接收数字数据，最多支持32字节
-    uint8_t dataBuffer[32] = {0};
-    uint32_t result = 0;
-
-    // 使用通用接收函数获取数字数据，最多接收32字节
-    uint8_t dataIndex = Serial_Receive(dataBuffer, 32, SERIAL_TYPE_NUMBER);
-
-    // 根据实际接收的字节数组合成最终的数字
-    // 如果接收超过4字节，只使用前4字节（保持32位兼容性）
-    uint8_t bytesToProcess = dataIndex < 4 ? dataIndex : 4;
-
-    for (uint8_t i = 0; i < bytesToProcess; i++)
-    {
-        result += ((uint32_t)dataBuffer[i]) << (i * 8);
-    }
-
-    return result;
-}
-
-/**
-  * 函    数：串口通用接收函数
-  * 参    数：buffer 接收数据缓冲区指针
-  * 参    数：maxSize 缓冲区最大大小
-  * 参    数：type 接收数据类型（字符串或数字）
-  * 返 回 值：实际接收到的数据长度或状态码
-  */
-uint8_t Serial_Receive(void *buffer, uint8_t maxSize, SerialDataType type)
-{
-    uint8_t dataIndex = 0;
-    uint8_t receivedStartFlag = 0;
-    uint8_t receivedEndFlag = 0;
-    uint8_t *byteBuffer = (uint8_t *)buffer;
-
     // 参数检查
-    if (buffer == NULL || maxSize == 0)
+    if (Buffer == NULL || MaxSize == 0 || Serial == NULL)
     {
         return 0;
     }
 
+    uint8_t dataIndex = 0;
+    uint8_t receivedStartFlag = 0;
+    uint8_t receivedEndFlag = 0;
+    uint8_t *byteBuffer = (uint8_t *)Buffer;
+
+    memset(byteBuffer, 0, sizeof(uint8_t) * MaxSize);
+
     // 等待接收完整的数据包起始标志
     while (RxPacketQueue.WriteIndex != RxPacketQueue.ReadIndex && !receivedStartFlag)
     {
-        if (!rxQueueIsEmpty())
+        if (!rxQueueIsEmpty(&SerialA1))
         {
             uint8_t tempData = getQueueOneData(&RxPacketQueue);
 
@@ -312,7 +300,7 @@ uint8_t Serial_Receive(void *buffer, uint8_t maxSize, SerialDataType type)
     // 接收数据直到结束标志
     while (receivedStartFlag && !receivedEndFlag)
     {
-        if (!rxQueueIsEmpty())
+        if (!rxQueueIsEmpty(&SerialA1))
         {
             uint8_t tempData = getQueueOneData(&RxPacketQueue);
 
@@ -322,59 +310,21 @@ uint8_t Serial_Receive(void *buffer, uint8_t maxSize, SerialDataType type)
             }
             else
             {
-                // 根据数据类型处理接收的数据
-                if (type == SERIAL_TYPE_STRING)
+                //接收字符直到缓冲区满
+                if (dataIndex < MaxSize)
                 {
-                    // 字符串类型：接收字符直到缓冲区满
-                    if (dataIndex < maxSize - 1) // 留出一个字节给null终止符
-                    {
-                        byteBuffer[dataIndex++] = tempData;
-                    }
-                    else
-                    {
-                        // 缓冲区已满，继续读取但不存储，直到遇到结束标志
-                        continue;
-                    }
+                    byteBuffer[dataIndex++] = tempData;
                 }
-                else if (type == SERIAL_TYPE_NUMBER)
+                else
                 {
-                    // 数字类型：接收字节直到缓冲区满
-                    if (dataIndex < maxSize)
-                    {
-                        byteBuffer[dataIndex++] = tempData;
-                    }
-                    else
-                    {
-                        // 缓冲区已满，继续读取直到遇到结束标志
-                        continue;
-                    }
+                    // 缓冲区已满，继续读取但不存储，直到遇到结束标志
+                    continue;
                 }
             }
         }
     }
 
-    // 后处理根据数据类型
-    if (type == SERIAL_TYPE_STRING)
-    {
-        // 确保字符串以null结尾
-        if (dataIndex < maxSize)
-        {
-            byteBuffer[dataIndex] = '\0';
-        }
-        else
-        {
-            byteBuffer[maxSize - 1] = '\0';
-        }
-        // 返回字符串长度（不包括null终止符）
-        return dataIndex;
-    }
-    else if (type == SERIAL_TYPE_NUMBER)
-    {
-        // 对于数字类型，返回实际接收的字节数
-        return dataIndex;
-    }
-
-    return 0;
+    return dataIndex;
 }
 
 /**
@@ -398,11 +348,11 @@ int fputc(int ch, FILE *f)
  */
 void USART1_IRQHandler(void)
 {
-    if (USART_GetITStatus(USART1, USART_IT_RXNE) == SET) // 判断是否是USART1的接收事件触发的中断
+    if (USART_GetITStatus(SerialA1.USARTx, USART_IT_RXNE) == SET) // 判断是否是USART1的接收事件触发的中断
     {
-        uint8_t RxData = USART_ReceiveData(USART1); // 读取数据寄存器，存放在接收的数据变量
-        giveQueueOneData(&RxPacketQueue, RxData);
+        uint8_t RxData = USART_ReceiveData(SerialA1.USARTx); // 读取数据寄存器，存放在接收的数据变量
+        giveQueueOneData(SerialA1.RxQueue, RxData);
 
-        USART_ClearITPendingBit(USART1, USART_IT_RXNE); // 清除标志位
+        USART_ClearITPendingBit(SerialA1.USARTx, USART_IT_RXNE); // 清除标志位
     }
 }
