@@ -1,24 +1,23 @@
 #include "Serial.h"
+#include "MyDMA.h"
+#include "MyProtocol.h"
 #include "stm32f10x.h" // Device header
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <stdarg.h>
 
 Queue_t TxPacketQueue = {
     .ReadIndex = 0,
     .WriteIndex = 0,
     .QueueLength = 50,
-    .DataQueue = {0}
-};
+    .DataQueue = {0}};
 
 Queue_t RxPacketQueue = {
     .ReadIndex = 0,
     .WriteIndex = 0,
     .QueueLength = 50,
-    .DataQueue = {0}
-};
+    .DataQueue = {0}};
 
 Serial_t SerialA1 = {
     .SerialName = "A1",
@@ -31,7 +30,7 @@ Serial_t SerialA1 = {
     .NVIC_IRQChannelPreemptionPriority = 1,
     .NVIC_IRQChannelSubPriority = 1,
 };
-Serial_t* getSerialA1(void)
+Serial_t *getSerialA1(void)
 {
     return &SerialA1;
 }
@@ -69,7 +68,7 @@ uint8_t readIndexAdd(Queue_t *Queue)
 {
     uint8_t nextReadIndex = (Queue->ReadIndex + 1) % Queue->QueueLength;
 
-        // 检查队列是否已满
+    // 检查队列是否已满
     if (nextReadIndex == Queue->WriteIndex)
     {
         // 队列已满，不移动写指针
@@ -107,7 +106,6 @@ uint8_t getQueueOneData(Queue_t *Queue)
     return Data;
 }
 
-
 void sendTxQueueOneDataToSerial(Serial_t *Serial)
 {
     if (Serial->TxQueue->WriteIndex != Serial->TxQueue->ReadIndex)
@@ -115,7 +113,6 @@ void sendTxQueueOneDataToSerial(Serial_t *Serial)
         Serial_SendByte(getQueueOneData(Serial->TxQueue));
     }
 }
-
 
 void sendTxQueueAllDataToSerial(Serial_t *Serial)
 {
@@ -133,7 +130,7 @@ void Serial_Init(uint8_t Num, ...)
 
     for (i = 0; i < Num; i++)
     {
-       OneSerial_Init((va_arg(Serials, Serial_t*)));
+        OneSerial_Init((va_arg(Serials, Serial_t *)));
     }
 
     va_end(Serials);
@@ -172,6 +169,21 @@ void OneSerial_Init(Serial_t *Serial)
     USART_InitStructure.USART_WordLength = USART_WordLength_8b;                     // 字长，选择8位
     USART_Init(USART1, &USART_InitStructure);                                       // 将结构体变量交给USART_Init，配置USART1
 
+#ifdef USE_DMA
+    /*DMA时钟使能*/
+    RCC_AHBPeriphClockCmd(RCC_AHBPeriph_DMA1, ENABLE);
+
+    /*DMA初始化*/
+    if (Serial->DmaTxEn)
+    {
+        DMA_USART1_Init(Serial, DMA_DIR_TX);
+    }
+    if (Serial->DmaRxEn)
+    {
+        DMA_USART1_Init(Serial, DMA_DIR_RX);
+    }
+#endif /* USE_DMA */
+
     /*中断输出配置*/
     USART_ITConfig(Serial->USARTx, USART_IT_RXNE, ENABLE); // 开启串口接收数据的中断
 
@@ -179,12 +191,12 @@ void OneSerial_Init(Serial_t *Serial)
     NVIC_PriorityGroupConfig(NVIC_PriorityGroup_2); // 配置NVIC为分组2
 
     /*NVIC配置*/
-    NVIC_InitTypeDef NVIC_InitStructure;                      // 定义结构体变量
-    NVIC_InitStructure.NVIC_IRQChannel = Serial->USARTx_IRQn;         // 选择配置NVIC的USART1线
-    NVIC_InitStructure.NVIC_IRQChannelCmd = ENABLE;           // 指定NVIC线路使能
+    NVIC_InitTypeDef NVIC_InitStructure;                                                              // 定义结构体变量
+    NVIC_InitStructure.NVIC_IRQChannel = Serial->USARTx_IRQn;                                         // 选择配置NVIC的USART1线
+    NVIC_InitStructure.NVIC_IRQChannelCmd = ENABLE;                                                   // 指定NVIC线路使能
     NVIC_InitStructure.NVIC_IRQChannelPreemptionPriority = Serial->NVIC_IRQChannelPreemptionPriority; // 指定NVIC线路的抢占优先级为1
-    NVIC_InitStructure.NVIC_IRQChannelSubPriority = Serial->NVIC_IRQChannelSubPriority;        // 指定NVIC线路的响应优先级为1
-    NVIC_Init(&NVIC_InitStructure);                           // 将结构体变量交给NVIC_Init，配置NVIC外设
+    NVIC_InitStructure.NVIC_IRQChannelSubPriority = Serial->NVIC_IRQChannelSubPriority;               // 指定NVIC线路的响应优先级为1
+    NVIC_Init(&NVIC_InitStructure);                                                                   // 将结构体变量交给NVIC_Init，配置NVIC外设
 
     /*USART使能*/
     USART_Cmd(Serial->USARTx, ENABLE); // 使能USART1，串口开始运行
@@ -263,72 +275,11 @@ uint32_t Serial_Pow(uint32_t X, uint32_t Y)
 
 uint8_t Serial_UnpackReceive(void *Buffer, uint8_t MaxSize, Serial_t *Serial)
 {
-    // 参数检查
-    if (Buffer == NULL || MaxSize == 0 || Serial == NULL)
-    {
-        return 0;
-    }
-
-    uint8_t dataIndex = 0;
-    uint8_t receivedStartFlag = 0;
-    uint8_t receivedEndFlag = 0;
-    uint8_t *byteBuffer = (uint8_t *)Buffer;
-
-    memset(byteBuffer, 0, sizeof(uint8_t) * MaxSize);
-
-    // 等待接收完整的数据包起始标志
-    while (RxPacketQueue.WriteIndex != RxPacketQueue.ReadIndex && !receivedStartFlag)
-    {
-        if (!rxQueueIsEmpty(&SerialA1))
-        {
-            uint8_t tempData = getQueueOneData(&RxPacketQueue);
-
-            if (tempData == 0xFF) // 接收到起始标志
-            {
-                receivedStartFlag = 1;
-                dataIndex = 0; // 重置索引
-            }
-        }
-    }
-
-    // 如果没有接收到起始标志，返回0
-    if (!receivedStartFlag)
-    {
-        return 0;
-    }
-
-    // 接收数据直到结束标志
-    while (receivedStartFlag && !receivedEndFlag)
-    {
-        if (!rxQueueIsEmpty(&SerialA1))
-        {
-            uint8_t tempData = getQueueOneData(&RxPacketQueue);
-
-            if (tempData == 0xFE) // 接收到结束标志
-            {
-                receivedEndFlag = 1;
-            }
-            else
-            {
-                //接收字符直到缓冲区满
-                if (dataIndex < MaxSize)
-                {
-                    byteBuffer[dataIndex++] = tempData;
-                }
-                else
-                {
-                    // 缓冲区已满，继续读取但不存储，直到遇到结束标志
-                    continue;
-                }
-            }
-        }
-    }
-
-    return dataIndex;
+    return protocolUnpack(Buffer, MaxSize, Serial);
 }
 
 /**
-  * 函    数：使用printf需要重定向的底层函数
+ * 函    数：使用printf需要重定向的底层函数
  * 参    数：保持原始格式即可，无需变动
  * 返 回 值：保持原始格式即可，无需变动
  */
