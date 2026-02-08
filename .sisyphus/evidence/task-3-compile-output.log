@@ -1,0 +1,13 @@
+Hardware/MyDMA.c: In function 'DMA_USART1_Init':
+Hardware/MyDMA.c:34:52: warning: cast from pointer to integer of different size [-Wpointer-to-int-cast]
+   34 |         DMA_InitStructure.DMA_PeripheralBaseAddr = (uint32_t)&Serial->USARTx->DR;
+      |                                                    ^
+Hardware/MyDMA.c:35:48: warning: cast from pointer to integer of different size [-Wpointer-to-int-cast]
+   35 |         DMA_InitStructure.DMA_MemoryBaseAddr = (uint32_t)Serial->DmaTxBuffer;
+      |                                                ^
+Hardware/MyDMA.c:67:52: warning: cast from pointer to integer of different size [-Wpointer-to-int-cast]
+   67 |         DMA_InitStructure.DMA_PeripheralBaseAddr = (uint32_t)&Serial->USARTx->DR;
+      |                                                    ^
+Hardware/MyDMA.c:68:48: warning: cast from pointer to integer of different size [-Wpointer-to-int-cast]
+   68 |         DMA_InitStructure.DMA_MemoryBaseAddr = (uint32_t)Serial->DmaRxBuffer;
+      |                                                ^

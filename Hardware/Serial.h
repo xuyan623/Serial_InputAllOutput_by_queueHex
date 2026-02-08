@@ -6,6 +6,8 @@
 
 /*******************************************配置区头******************************************/
 
+#define RX_QUEUE_LENGTH 50
+
 typedef struct Queue {
     uint8_t WriteIndex;
     uint8_t ReadIndex;
@@ -14,7 +16,7 @@ typedef struct Queue {
 } Queue_t;
 
 typedef struct Serial {
-    uint8_t *SerialName;
+    uint8_t SerialName[10];
     Queue_t *RxQueue;
     Queue_t *TxQueue;
     uint16_t TxPin;
@@ -23,22 +25,22 @@ typedef struct Serial {
     IRQn_Type USARTx_IRQn;
     uint8_t NVIC_IRQChannelPreemptionPriority;
     uint8_t NVIC_IRQChannelSubPriority;
-#ifdef USE_DMA
     uint8_t DmaTxEn;
     uint8_t DmaRxEn;
     DMA_Channel_TypeDef *DmaTxChannel;
     DMA_Channel_TypeDef *DmaRxChannel;
     uint8_t *DmaTxBuffer;
     uint8_t *DmaRxBuffer;
-    uint16_t DmaTxSize;
-    uint16_t DmaRxSize;
+    uint8_t DmaTxSize;
+    uint8_t DmaRxSize;
     uint8_t DmaTxBusy;
     uint8_t DmaRxBusy;
-#endif
 } Serial_t;
 
 void Serial_Init(uint8_t Num, ...);
 void OneSerial_Init(Serial_t *Serial);
+
+void createSerialA1(void);
 
 /*******************************************配置区尾******************************************/
 
@@ -46,13 +48,14 @@ void OneSerial_Init(Serial_t *Serial);
 
 void Serial_SendByte(uint8_t Byte);
 void Serial_SendArray(uint8_t *Array, uint16_t Length);
-void Universal_USART_IRQHandler(Serial_t *Serial);
 
 uint8_t rxQueueIsEmpty(Serial_t *Serial);
 uint8_t writeIndexAdd(Queue_t *Queue);
 uint8_t readIndexAdd(Queue_t *Queue);
 uint8_t getQueueOneData(Queue_t *Queue);
+uint8_t giveQueueBuff(Queue_t *Queue, uint8_t *buff, uint16_t Size);
 uint8_t giveQueueOneData(Queue_t *Queue, uint8_t Data);
+
 
 /*******************************************内部函数区尾******************************************/
 
@@ -60,6 +63,7 @@ uint8_t giveQueueOneData(Queue_t *Queue, uint8_t Data);
 
 Serial_t *getSerialA1(void);
 void Serial_Send(void *Data);
+void Serial_Send_byDMA(Serial_t *Serial, void *Data);
 uint8_t Serial_UnpackReceive(void *Buffer, uint8_t MaxSize, Serial_t *Serial);
 
 /*******************************************应用函数区尾******************************************/

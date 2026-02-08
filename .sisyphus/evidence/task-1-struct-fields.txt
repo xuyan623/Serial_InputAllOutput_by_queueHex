@@ -1,0 +1,31 @@
+16:typedef struct Serial {
+17-    uint8_t *SerialName;
+18-    Queue_t *RxQueue;
+19-    Queue_t *TxQueue;
+20-    uint16_t TxPin;
+21-    uint16_t RxPin;
+22-    USART_TypeDef *USARTx;
+23-    IRQn_Type USARTx_IRQn;
+24-    uint8_t NVIC_IRQChannelPreemptionPriority;
+25-    uint8_t NVIC_IRQChannelSubPriority;
+26-#ifdef USE_DMA
+27-    uint8_t DmaTxEn;
+28-    uint8_t DmaRxEn;
+29-    DMA_Channel_TypeDef *DmaTxChannel;
+30-    DMA_Channel_TypeDef *DmaRxChannel;
+31-    uint8_t *DmaTxBuffer;
+32-    uint8_t *DmaRxBuffer;
+33-    uint16_t DmaTxSize;
+34-    uint16_t DmaRxSize;
+35-    uint8_t DmaTxBusy;
+36-    uint8_t DmaRxBusy;
+37-#endif
+38-} Serial_t;
+39-
+40-void Serial_Init(uint8_t Num, ...);
+41-void OneSerial_Init(Serial_t *Serial);
+42-
+43-/*******************************************配置区尾******************************************/
+44-
+45-/*******************************************内部函数区头******************************************/
+46-

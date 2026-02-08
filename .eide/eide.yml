@@ -82,6 +82,10 @@ virtualFolder:
         - path: Hardware/OLED_Font.h
         - path: Hardware/Serial.c
         - path: Hardware/Serial.h
+        - path: Hardware/MyDMA.c
+        - path: Hardware/MyDMA.h
+        - path: Hardware/MyProtocol.c
+        - path: Hardware/MyProtocol.h
       folders: []
     - name: User
       files:

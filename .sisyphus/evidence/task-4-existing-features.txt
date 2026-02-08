@@ -1,0 +1,31 @@
+=== 任务4现有功能验证 ===
+1. RX中断配置检查:
+188:    USART_ITConfig(Serial->USARTx, USART_IT_RXNE, ENABLE); // 开启串口接收数据的中断
+
+2. USART初始化检查:
+163:    USART_InitTypeDef USART_InitStructure;                                          // 定义结构体变量
+164:    USART_InitStructure.USART_BaudRate = 9600;                                      // 波特率
+165:    USART_InitStructure.USART_HardwareFlowControl = USART_HardwareFlowControl_None; // 硬件流控制，不需要
+166:    USART_InitStructure.USART_Mode = USART_Mode_Tx | USART_Mode_Rx;                 // 模式，发送模式和接收模式均选择
+167:    USART_InitStructure.USART_Parity = USART_Parity_No;                             // 奇偶校验，不需要
+168:    USART_InitStructure.USART_StopBits = USART_StopBits_1;                          // 停止位，选择1位
+169:    USART_InitStructure.USART_WordLength = USART_WordLength_8b;                     // 字长，选择8位
+170:    USART_Init(USART1, &USART_InitStructure);                                       // 将结构体变量交给USART_Init，配置USART1
+
+3. GPIO初始化检查:
+151:    GPIO_InitTypeDef GPIO_InitStructure;
+152:    GPIO_InitStructure.GPIO_Mode = GPIO_Mode_AF_PP;
+153:    GPIO_InitStructure.GPIO_Pin = Serial->TxPin;
+154:    GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;
+155:    GPIO_Init(GPIOA, &GPIO_InitStructure); // 将PA9引脚初始化为复用推挽输出
+
+4. DMA代码检查:
+172:#ifdef USE_DMA
+185:#endif /* USE_DMA */
+
+5. DMA时钟使能检查:
+174:    RCC_AHBPeriphClockCmd(RCC_AHBPeriph_DMA1, ENABLE);
+
+6. DMA初始化调用检查:
+179:        DMA_USART1_Init(Serial, DMA_DIR_TX);
+183:        DMA_USART1_Init(Serial, DMA_DIR_RX);

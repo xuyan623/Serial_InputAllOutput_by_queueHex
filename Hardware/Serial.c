@@ -11,25 +11,38 @@ Queue_t TxPacketQueue = {
     .ReadIndex = 0,
     .WriteIndex = 0,
     .QueueLength = 50,
-    .DataQueue = {0}};
+    .DataQueue = {0}
+};
 
 Queue_t RxPacketQueue = {
     .ReadIndex = 0,
     .WriteIndex = 0,
     .QueueLength = 50,
-    .DataQueue = {0}};
-
-Serial_t SerialA1 = {
-    .SerialName = "A1",
-    .RxQueue = &RxPacketQueue,
-    .TxQueue = &TxPacketQueue,
-    .TxPin = GPIO_Pin_9,
-    .RxPin = GPIO_Pin_10,
-    .USARTx = USART1,
-    .USARTx_IRQn = USART1_IRQn,
-    .NVIC_IRQChannelPreemptionPriority = 1,
-    .NVIC_IRQChannelSubPriority = 1,
+    .DataQueue = {0}
 };
+
+Serial_t SerialA1;
+void createSerialA1(void)
+{
+    uint8_t *RxBuff = getDM_RxBuff();
+    strcpy((char*)SerialA1.SerialName, "A1");
+    SerialA1.RxQueue = &RxPacketQueue;
+    SerialA1.TxQueue = &TxPacketQueue;
+    SerialA1.TxPin = GPIO_Pin_9;
+    SerialA1.RxPin = GPIO_Pin_10;
+    SerialA1.USARTx = USART1;
+    SerialA1.USARTx_IRQn = USART1_IRQn;
+    SerialA1.NVIC_IRQChannelPreemptionPriority = 1;
+    SerialA1.NVIC_IRQChannelSubPriority = 1;
+    SerialA1.DmaRxBuffer = RxBuff;
+    SerialA1.DmaRxChannel = DMA1_Channel5;
+    SerialA1.DmaRxSize = RxPacketQueue.QueueLength;
+    SerialA1.DmaTxBusy = 0;
+    SerialA1.DmaTxBuffer = TxPacketQueue.DataQueue;
+    SerialA1.DmaTxChannel = DMA1_Channel4;
+    SerialA1.DmaTxSize = TxPacketQueue.QueueLength;
+    SerialA1.DmaRxBusy = 0;
+}
 Serial_t *getSerialA1(void)
 {
     return &SerialA1;
@@ -66,16 +79,12 @@ uint8_t writeIndexAdd(Queue_t *Queue)
 
 uint8_t readIndexAdd(Queue_t *Queue)
 {
-    uint8_t nextReadIndex = (Queue->ReadIndex + 1) % Queue->QueueLength;
-
-    // 检查队列是否已满
-    if (nextReadIndex == Queue->WriteIndex)
-    {
-        // 队列已满，不移动写指针
-        return 0;
+    // 检查队列是否为空（应使用）
+    if (Queue->ReadIndex == Queue->WriteIndex) {
+        return 0;  // 队列为空，不移动读指针
     }
-
-    Queue->ReadIndex = nextReadIndex;
+    
+    Queue->ReadIndex = (Queue->ReadIndex + 1) % Queue->QueueLength;
     return 1;
 }
 
@@ -94,6 +103,26 @@ uint8_t giveQueueOneData(Queue_t *Queue, uint8_t Data)
     Queue->DataQueue[Queue->WriteIndex] = Data;
     // 更新写指针到下一个位置
     Queue->WriteIndex = nextWriteIndex;
+    return 1;
+}
+
+uint8_t giveQueueBuff(Queue_t *Queue, uint8_t *buff, uint16_t Size)
+{
+    // 检查空指针
+    if (buff == 0)
+    {
+        return 0;
+    }
+    uint8_t *Packet = (uint8_t *)buff;
+
+    for (uint8_t i = 0; i < Size; i++)
+    {
+        if (!giveQueueOneData(Queue, Packet[i]))
+        {
+            // 队列已满，停止添加数据
+            break;
+        }
+    }
     return 1;
 }
 
@@ -169,23 +198,17 @@ void OneSerial_Init(Serial_t *Serial)
     USART_InitStructure.USART_WordLength = USART_WordLength_8b;                     // 字长，选择8位
     USART_Init(USART1, &USART_InitStructure);                                       // 将结构体变量交给USART_Init，配置USART1
 
-#ifdef USE_DMA
     /*DMA时钟使能*/
     RCC_AHBPeriphClockCmd(RCC_AHBPeriph_DMA1, ENABLE);
 
     /*DMA初始化*/
-    if (Serial->DmaTxEn)
-    {
-        DMA_USART1_Init(Serial, DMA_DIR_TX);
-    }
-    if (Serial->DmaRxEn)
-    {
-        DMA_USART1_Init(Serial, DMA_DIR_RX);
-    }
-#endif /* USE_DMA */
+
+    DMA_USART1_Init(Serial, DMA_DIR_TX);
+
+    DMA_USART1_Init(Serial, DMA_DIR_RX);
 
     /*中断输出配置*/
-    USART_ITConfig(Serial->USARTx, USART_IT_RXNE, ENABLE); // 开启串口接收数据的中断
+    //USART_ITConfig(Serial->USARTx, USART_IT_RXNE, ENABLE); // 开启串口接收数据的中断
 
     /*NVIC中断分组*/
     NVIC_PriorityGroupConfig(NVIC_PriorityGroup_2); // 配置NVIC为分组2
@@ -210,8 +233,7 @@ void OneSerial_Init(Serial_t *Serial)
 void Serial_SendByte(uint8_t Byte)
 {
     USART_SendData(USART1, Byte); // 将字节数据写入数据寄存器，写入后USART自动生成时序波形
-    while (USART_GetFlagStatus(USART1, USART_FLAG_TXE) == RESET)
-        ; // 等待发送完成
+    while (USART_GetFlagStatus(USART1, USART_FLAG_TXE) == RESET); // 等待发送完成
     /*下次写入数据寄存器会自动清除发送完成标志位，故此循环后，无需清除标志位*/
 }
 
@@ -259,6 +281,30 @@ void Serial_Send(void *Data)
     Serial_SendByte(0xFE);
 }
 
+void Serial_Send_byDMA(Serial_t *Serial, void *Data)
+{
+    // 检查空指针
+    if (Data == 0)
+    {
+        return;
+    }
+    uint8_t *Packet = (uint8_t *)Data;
+    uint8_t DataLength = strlen((char *)Packet);
+
+    giveQueueOneData(Serial->TxQueue, 0xFF);
+
+    for (uint8_t i = 0; i < DataLength; i++)
+    {
+        if (!giveQueueOneData(Serial->TxQueue, Packet[i]))
+        {
+            // 队列已满，停止添加数据
+            break;
+        }
+    }
+    giveQueueOneData(Serial->TxQueue, 0xFE);
+    DMA_QueueSend(Serial);
+}
+
 /**
  * 函    数：次方函数（内部使用）
  * 返 回 值：返回值等于X的Y次方
@@ -297,13 +343,13 @@ int fputc(int ch, FILE *f)
  *           函数名为预留的指定名称，可以从启动文件复制
  *           请确保函数名正确，不能有任何差异，否则中断函数将不能进入
  */
-void USART1_IRQHandler(void)
-{
-    if (USART_GetITStatus(SerialA1.USARTx, USART_IT_RXNE) == SET) // 判断是否是USART1的接收事件触发的中断
-    {
-        uint8_t RxData = USART_ReceiveData(SerialA1.USARTx); // 读取数据寄存器，存放在接收的数据变量
-        giveQueueOneData(SerialA1.RxQueue, RxData);
+// void USART1_IRQHandler(void)
+// {
+//     if (USART_GetITStatus(SerialA1.USARTx, USART_IT_RXNE) == SET) // 判断是否是USART1的接收事件触发的中断
+//     {
+//         uint8_t RxData = USART_ReceiveData(SerialA1.USARTx); // 读取数据寄存器，存放在接收的数据变量
+//         giveQueueOneData(SerialA1.RxQueue, RxData);
 
-        USART_ClearITPendingBit(SerialA1.USARTx, USART_IT_RXNE); // 清除标志位
-    }
-}
+//         USART_ClearITPendingBit(SerialA1.USARTx, USART_IT_RXNE); // 清除标志位
+//     }
+// }

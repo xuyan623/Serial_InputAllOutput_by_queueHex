@@ -1,9 +1,16 @@
 #include "MyDMA.h"
+#include <stdio.h>
+#include <stdlib.h>
 #include "Serial.h"
 #include "stm32f10x.h" // Device header
 #include "stm32f10x_dma.h"
 
-#ifdef USE_DMA
+uint8_t DMA_RxBuff[RX_BUFF_LENGTH];
+uint16_t LastTotalDataLength;
+uint8_t* getDM_RxBuff(void)
+{
+    return DMA_RxBuff;
+}
 
 /**
  * @brief 初始化USART1的DMA传输
@@ -48,8 +55,20 @@ void DMA_USART1_Init(Serial_t *Serial, uint8_t Direction)
         /* 配置USART DMA请求 */
         USART_DMACmd(Serial->USARTx, USART_DMAReq_Tx, ENABLE);
 
+        // 使能DMA发送完成和错误中断
+        DMA_ITConfig(Serial->DmaTxChannel, DMA_IT_TC | DMA_IT_TE, ENABLE);
+
+        /*NVIC中断分组*/
+        NVIC_PriorityGroupConfig(NVIC_PriorityGroup_2); // 配置NVIC为分组2
+        /*NVIC配置*/
+        NVIC_InitTypeDef NVIC_InitStructure;  
+        NVIC_InitStructure.NVIC_IRQChannel = DMA1_Channel4_IRQn;  // DMA1 Channel4中断
+        NVIC_InitStructure.NVIC_IRQChannelPreemptionPriority = 2; // 较低优先级
+        NVIC_InitStructure.NVIC_IRQChannelSubPriority = 0;
+        NVIC_Init(&NVIC_InitStructure);
+
         /* 使能DMA通道 */
-        DMA_Cmd(Serial->DmaTxChannel, ENABLE);
+        DMA_Cmd(Serial->DmaTxChannel, DISABLE);
 
         /* 标记DMA TX已使能 */
         Serial->DmaTxEn = 1;
@@ -81,11 +100,59 @@ void DMA_USART1_Init(Serial_t *Serial, uint8_t Direction)
         /* 配置USART DMA请求 */
         USART_DMACmd(Serial->USARTx, USART_DMAReq_Rx, ENABLE);
 
+        // 使能DMA接收半传输、传输完成和错误中断
+        DMA_ITConfig(Serial->DmaRxChannel, DMA_IT_HT | DMA_IT_TC | DMA_IT_TE, ENABLE);
+        
+        /*NVIC中断分组*/
+        NVIC_PriorityGroupConfig(NVIC_PriorityGroup_2); // 配置NVIC为分组2
+        /*NVIC配置*/
+        NVIC_InitTypeDef NVIC_InitStructure;  
+        NVIC_InitStructure.NVIC_IRQChannel = DMA1_Channel5_IRQn;  // DMA1 Channel4中断
+        NVIC_InitStructure.NVIC_IRQChannelPreemptionPriority = 2; // 较低优先级
+        NVIC_InitStructure.NVIC_IRQChannelSubPriority = 1;
+        NVIC_Init(&NVIC_InitStructure);
+
         /* 使能DMA通道 */
         DMA_Cmd(Serial->DmaRxChannel, ENABLE);
 
         /* 标记DMA RX已使能 */
         Serial->DmaRxEn = 1;
+    }
+}
+
+void DMA_QueueSend(Serial_t *Serial)
+{
+    if (Serial->DmaTxEn && !Serial->DmaTxBusy)
+    {
+        uint8_t *buffer_start;
+        uint16_t linear_length;
+        
+        // 处理回绕情况
+        if (Serial->TxQueue->ReadIndex <= Serial->TxQueue->WriteIndex || Serial->TxQueue->WriteIndex == 0)
+        {
+            // 数据连续存储
+            buffer_start = &Serial->TxQueue->DataQueue[Serial->TxQueue->ReadIndex];
+            linear_length = abs(Serial->TxQueue->WriteIndex - Serial->TxQueue->ReadIndex);
+            if (linear_length > 0)
+            {
+                DMA_Cmd(Serial->DmaTxChannel, DISABLE);
+                Serial->DmaTxChannel->CMAR = (uint32_t)buffer_start;
+                Serial->DmaTxChannel->CNDTR = linear_length;
+                DMA_Cmd(Serial->DmaTxChannel, ENABLE);
+                Serial->DmaTxBusy = 1;
+            }
+        }
+        else
+        {
+            // 数据回绕，先发送到缓冲区末尾的数据
+            buffer_start = &Serial->TxQueue->DataQueue[Serial->TxQueue->ReadIndex];
+            linear_length = Serial->TxQueue->QueueLength - Serial->TxQueue->ReadIndex;
+            DMA_Cmd(Serial->DmaTxChannel, DISABLE);
+            Serial->DmaTxChannel->CMAR = (uint32_t)buffer_start;
+            Serial->DmaTxChannel->CNDTR = linear_length;
+            DMA_Cmd(Serial->DmaTxChannel, ENABLE);
+            Serial->DmaTxBusy = 1;
+        }
     }
 }
 
@@ -106,9 +173,10 @@ void DMA_USART1_TxSend(Serial_t *Serial, uint8_t *data, uint16_t size)
         return;
 
     /* 配置DMA传输 */
-    // TODO: 设置DMA内存地址
-    // TODO: 设置DMA传输数量
-    // TODO: 启动DMA传输
+    DMA_Cmd(Serial->DmaTxChannel, DISABLE);                    // 先禁用DMA通道
+    Serial->DmaTxChannel->CMAR = (uint32_t)data;              // 设置DMA内存地址
+    Serial->DmaTxChannel->CNDTR = size;                       // 设置DMA传输数量
+    DMA_Cmd(Serial->DmaTxChannel, ENABLE);                     // 启动DMA传输
 
     /* 标记发送繁忙 */
     Serial->DmaTxBusy = 1;
@@ -128,12 +196,15 @@ void DMA_USART1_RxReceive(Serial_t *Serial, uint8_t *buffer, uint16_t size)
 
     /* 检查DMA接收是否已使能 */
     if (Serial->DmaRxEn == 0)
+    {
         return;
+    }
 
     /* 配置DMA传输 */
-    // TODO: 设置DMA内存地址
-    // TODO: 设置DMA传输数量
-    // TODO: 启动DMA传输
+    DMA_Cmd(Serial->DmaRxChannel, DISABLE);                   // 先禁用DMA通道
+    Serial->DmaRxChannel->CMAR = (uint32_t)buffer;           // 设置DMA内存地址
+    Serial->DmaRxChannel->CNDTR = size;                      // 设置DMA传输数量
+    DMA_Cmd(Serial->DmaRxChannel, ENABLE);                    // 启动DMA传输
 
     /* 标记接收繁忙 */
     Serial->DmaRxBusy = 1;
@@ -153,14 +224,14 @@ void DMA_USART1_Start(Serial_t *Serial, uint8_t Direction)
     if (Direction == DMA_DIR_TX)
     {
         /* 启动DMA发送 */
-        // TODO: 使能DMA通道
-        // TODO: 使能USART DMA发送请求
+        DMA_Cmd(Serial->DmaTxChannel, ENABLE);                // 使能DMA通道
+        USART_DMACmd(Serial->USARTx, USART_DMAReq_Tx, ENABLE); // 使能USART DMA发送请求
     }
     else if (Direction == DMA_DIR_RX)
     {
         /* 启动DMA接收 */
-        // TODO: 使能DMA通道
-        // TODO: 使能USART DMA接收请求
+        DMA_Cmd(Serial->DmaRxChannel, ENABLE);                // 使能DMA通道
+        USART_DMACmd(Serial->USARTx, USART_DMAReq_Rx, ENABLE); // 使能USART DMA接收请求
     }
 }
 
@@ -178,18 +249,16 @@ void DMA_USART1_Stop(Serial_t *Serial, uint8_t Direction)
     if (Direction == DMA_DIR_TX)
     {
         /* 停止DMA发送 */
-        // TODO: 禁用DMA通道
-        // TODO: 禁用USART DMA发送请求
-        // TODO: 清除繁忙标志
-        Serial->DmaTxBusy = 0;
+        DMA_Cmd(Serial->DmaTxChannel, DISABLE);               // 禁用DMA通道
+        USART_DMACmd(Serial->USARTx, USART_DMAReq_Tx, DISABLE); // 禁用USART DMA发送请求
+        Serial->DmaTxBusy = 0;                                // 清除繁忙标志
     }
     else if (Direction == DMA_DIR_RX)
     {
         /* 停止DMA接收 */
-        // TODO: 禁用DMA通道
-        // TODO: 禁用USART DMA接收请求
-        // TODO: 清除繁忙标志
-        Serial->DmaRxBusy = 0;
+        DMA_Cmd(Serial->DmaRxChannel, DISABLE);               // 禁用DMA通道
+        USART_DMACmd(Serial->USARTx, USART_DMAReq_Rx, DISABLE); // 禁用USART DMA接收请求
+        Serial->DmaRxBusy = 0;                                // 清除繁忙标志
     }
 }
 
@@ -223,4 +292,98 @@ uint8_t DMA_USART1_RxBusy(Serial_t *Serial)
     return Serial->DmaRxBusy;
 }
 
-#endif /* USE_DMA */
+/**
+ * 函    数：DMA1 Channel4中断处理函数（USART1 TX DMA）
+ * 参    数：无
+ * 返 回 值：无
+ */
+void DMA1_Channel4_IRQHandler(void)
+{
+    // 处理传输完成中断
+    if (DMA_GetITStatus(DMA1_IT_TC4) == SET)
+    {
+        DMA_ClearITPendingBit(DMA1_IT_TC4);
+        Serial_t *SerialA1 = getSerialA1();
+        SerialA1->DmaTxBusy = 0;  // 清除发送繁忙标志
+        // 重置队列指针，准备下一次发送
+        SerialA1->TxQueue->ReadIndex = 0;
+        SerialA1->TxQueue->WriteIndex = 0;
+        DMA_Cmd(SerialA1->DmaTxChannel, DISABLE);
+    }
+    
+    // 处理传输错误中断
+    if (DMA_GetITStatus(DMA1_IT_TE4) == SET)
+    {
+        DMA_ClearITPendingBit(DMA1_IT_TE4);
+        Serial_t *SerialA1 = getSerialA1();
+        SerialA1->DmaTxBusy = 0;  // 清除发送繁忙标志
+        // 重置队列指针，准备下一次发送
+        SerialA1->TxQueue->ReadIndex = 0;
+        SerialA1->TxQueue->WriteIndex = 0;
+        DMA_Cmd(SerialA1->DmaTxChannel, DISABLE);
+    }
+}
+
+/**
+ * 函    数：DMA1 Channel5中断处理函数（USART1 RX DMA）
+ * 参    数：无
+ * 返 回 值：无
+ */
+void DMA1_Channel5_IRQHandler(void)
+{
+    // 处理半传输完成中断
+    if (DMA_GetITStatus(DMA1_IT_HT5) == SET)
+    {
+        Serial_t *SerialA1 = getSerialA1();
+        uint16_t TotalDataLength;
+        uint16_t NeedHandleLength;
+        
+        TotalDataLength = SerialA1->DmaRxSize - DMA_GetCurrDataCounter(SerialA1->DmaRxChannel);
+        NeedHandleLength = TotalDataLength - LastTotalDataLength;
+        giveQueueBuff(SerialA1->RxQueue, &DMA_RxBuff[LastTotalDataLength], NeedHandleLength);
+        LastTotalDataLength = TotalDataLength;
+
+        DMA_ClearITPendingBit(DMA1_IT_HT5);
+        // 半传输完成处理（可在此处处理已接收的数据）
+    }
+    
+    // 处理传输完成中断
+    if (DMA_GetITStatus(DMA1_IT_TC5) == SET)
+    {
+        Serial_t *SerialA1 = getSerialA1();
+        uint16_t NeedHandleLength;
+        NeedHandleLength = SerialA1->DmaRxSize - LastTotalDataLength;
+        giveQueueBuff(SerialA1->RxQueue, &DMA_RxBuff[LastTotalDataLength], NeedHandleLength);
+        LastTotalDataLength = 0;
+
+        DMA_ClearITPendingBit(DMA1_IT_TC5);
+        // 传输完成处理（对于循环模式，这表示缓冲区已满一轮）
+    }
+    
+    // 处理传输错误中断
+    if (DMA_GetITStatus(DMA1_IT_TE5) == SET)
+    {
+        DMA_ClearITPendingBit(DMA1_IT_TE5);
+        // 传输错误处理
+    }
+}
+
+void USART1_IRQHandler(void)
+{
+    Serial_t *SerialA1 = getSerialA1();
+    if (USART_GetITStatus(SerialA1->USARTx, USART_IT_IDLE) == SET) // 判断是否是USART1的接收事件触发的中断
+    {
+        if (SerialA1->DmaRxEn)
+        {
+            // DMA模式处理
+            uint16_t TotalDataLength;
+            uint16_t NeedHandleLength;
+            
+            TotalDataLength = SerialA1->DmaRxSize - DMA_GetCurrDataCounter(SerialA1->DmaRxChannel);
+            NeedHandleLength = TotalDataLength - LastTotalDataLength;
+            giveQueueBuff(SerialA1->RxQueue, &DMA_RxBuff[LastTotalDataLength], NeedHandleLength);
+            LastTotalDataLength = TotalDataLength;
+        }
+        USART_ClearITPendingBit(SerialA1->USARTx, USART_IT_IDLE); // 清除标志位
+    }
+}

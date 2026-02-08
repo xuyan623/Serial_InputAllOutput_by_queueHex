@@ -1,0 +1,7 @@
+33:void DMA_USART1_Init(Serial_t *Serial, uint8_t Direction);
+41:void DMA_USART1_TxSend(Serial_t *Serial, uint8_t *data, uint16_t size);
+49:void DMA_USART1_RxReceive(Serial_t *Serial, uint8_t *buffer, uint16_t size);
+56:void DMA_USART1_Start(Serial_t *Serial, uint8_t Direction);
+63:void DMA_USART1_Stop(Serial_t *Serial, uint8_t Direction);
+70:uint8_t DMA_USART1_TxBusy(Serial_t *Serial);
+77:uint8_t DMA_USART1_RxBusy(Serial_t *Serial);

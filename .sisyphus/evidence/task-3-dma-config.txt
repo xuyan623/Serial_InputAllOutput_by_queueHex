@@ -1,0 +1,44 @@
+    # DMA配置参数 - 任务3实现
+
+## DMA_USART1_Init函数配置参数
+
+### TX方向（DMA_DIR_TX）
+- 外设基地址: `(uint32_t)&Serial->USARTx->DR` (USART数据寄存器)
+- 内存基地址: `(uint32_t)Serial->DmaTxBuffer` (TX缓冲区指针)
+- 传输方向: `DMA_DIR_PeripheralDST` (内存到外设)
+- 缓冲区大小: `Serial->DmaTxSize` (TX缓冲区大小)
+- 外设地址增量: `DMA_PeripheralInc_Disable`
+- 内存地址增量: `DMA_MemoryInc_Enable`
+- 外设数据大小: `DMA_PeripheralDataSize_Byte` (8位)
+- 内存数据大小: `DMA_MemoryDataSize_Byte` (8位)
+- 模式: `DMA_Mode_Normal` (正常模式)
+- 优先级: `DMA_Priority_Medium`
+- M2M模式: `DMA_M2M_Disable`
+
+### RX方向（DMA_DIR_RX）
+- 外设基地址: `(uint32_t)&Serial->USARTx->DR` (USART数据寄存器)
+- 内存基地址: `(uint32_t)Serial->DmaRxBuffer` (RX缓冲区指针)
+- 传输方向: `DMA_DIR_PeripheralSRC` (外设到内存)
+- 缓冲区大小: `Serial->DmaRxSize` (RX缓冲区大小)
+- 外设地址增量: `DMA_PeripheralInc_Disable`
+- 内存地址增量: `DMA_MemoryInc_Enable`
+- 外设数据大小: `DMA_PeripheralDataSize_Byte` (8位)
+- 内存数据大小: `DMA_MemoryDataSize_Byte` (8位)
+- 模式: `DMA_Mode_Circular` (循环缓冲区模式)
+- 优先级: `DMA_Priority_Medium`
+- M2M模式: `DMA_M2M_Disable`
+
+## 其他配置
+- DMA时钟使能: `RCC_AHBPeriphClockCmd(RCC_AHBPeriph_DMA1, ENABLE)`
+- USART DMA请求使能:
+  - TX: `USART_DMACmd(Serial->USARTx, USART_DMAReq_Tx, ENABLE)`
+  - RX: `USART_DMACmd(Serial->USARTx, USART_DMAReq_Rx, ENABLE)`
+- DMA通道使能: `DMA_Cmd(Serial->DmaTxChannel/RxChannel, ENABLE)`
+- 通道指针初始化: 如果`Serial->DmaTxChannel`或`Serial->DmaRxChannel`为NULL，使用宏定义值:
+  - TX通道: `DMA_USART1_TX_CHANNEL` (DMA1_Channel4)
+  - RX通道: `DMA_USART1_RX_CHANNEL` (DMA1_Channel5)
+
+## 验证结果
+- 编译成功（仅警告指针到整型转换，在STM32中正常）
+- 配置参数符合任务要求
+

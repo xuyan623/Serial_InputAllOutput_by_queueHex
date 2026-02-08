@@ -7,7 +7,7 @@
 
 /*******************************************配置区头******************************************/
 
-#ifdef USE_DMA
+#define RX_BUFF_LENGTH  RX_QUEUE_LENGTH
 
 /* DMA方向定义 */
 #define DMA_DIR_TX 0
@@ -17,13 +17,13 @@
 #define DMA_USART1_TX_CHANNEL DMA1_Channel4
 #define DMA_USART1_RX_CHANNEL DMA1_Channel5
 
-/* DMA缓冲区大小定义 */
-#define DMA_TX_BUFFER_SIZE 128
-#define DMA_RX_BUFFER_SIZE 256
+uint8_t* getDM_RxBuff(void);
 
 /*******************************************配置区尾******************************************/
 
 /*******************************************DMA管理器API函数区头******************************************/
+
+void DMA_QueueSend(Serial_t *Serial);
 
 /**
  * @brief 初始化USART1的DMA传输
@@ -77,7 +77,5 @@ uint8_t DMA_USART1_TxBusy(Serial_t *Serial);
 uint8_t DMA_USART1_RxBusy(Serial_t *Serial);
 
 /*******************************************DMA管理器API函数区尾******************************************/
-
-#endif /* USE_DMA */
 
 #endif /* __MYDMA_H */
